@@ -1,5 +1,7 @@
 [build]
-  command = "pnpm build"
+  # Apply pending SQL migrations (tracked, so re-runs are no-ops) before
+  # building, so the deployed functions never meet a missing table.
+  command = "pnpm db:migrate && pnpm build"
   publish = ".next"
 
 [build.environment]

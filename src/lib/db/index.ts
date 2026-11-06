@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from './schema';
-import { parseDatabaseTarget, resolveDatabaseUrl } from './target';
+import { DatabaseConfigError, parseDatabaseTarget, resolveDatabaseUrl } from './target';
 
 export type Db = PgDatabase<
   PgQueryResultHKT,
@@ -87,7 +87,25 @@ async function createPostgres(url: string): Promise<Db> {
  */
 export function getDb(): Promise<Db> {
   if (!dbPromise) {
-    const url = resolveDatabaseUrl();
+    let url: string | null;
+    try {
+      url = resolveDatabaseUrl();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    if (!url && isServerless()) {
+      // PGlite needs a writable, persistent disk; a function host has neither.
+      // Fail loudly instead of with an obscure filesystem error. Not cached, so
+      // fixing the environment takes effect without a cold start.
+      return Promise.reject(
+        new DatabaseConfigError(
+          'No Postgres connection string configured. Set DATABASE_URL to your ' +
+            'Supabase transaction-pooler URL (postgres://…:6543/postgres). ' +
+            'SUPABASE_DATABASE_URL from the Supabase integration is an HTTPS API URL ' +
+            'and cannot be used for a database connection.',
+        ),
+      );
+    }
     dbPromise = url ? createPostgres(url) : createPglite();
   }
   return dbPromise;

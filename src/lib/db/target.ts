@@ -45,18 +45,38 @@ export function parseDatabaseTarget(url: string): DatabaseTarget {
   return { local, port, pooler, transactionPooler, prepare, ssl };
 }
 
+const POSTGRES_URL = /^postgres(?:ql)?:\/\//i;
+
+/** Thrown when the environment names a database the app cannot connect to. */
+export class DatabaseConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseConfigError';
+  }
+}
+
 /**
  * Picks the connection string from the environment.
  *
- * `DATABASE_URL` is ours and always wins. `SUPABASE_DATABASE_URL` is what the
- * Netlify ↔ Supabase integration injects, so installing that integration is
- * enough to wire the app up without copying secrets by hand.
+ * `DATABASE_URL` is ours and always wins. `SUPABASE_DATABASE_URL` is set by
+ * the Netlify ↔ Supabase integration, but it holds the project's HTTPS API URL
+ * (`https://<ref>.supabase.co`), not a Postgres connection string. It is only
+ * used when it really is a `postgres://` URL; otherwise it is ignored.
  */
 export function resolveDatabaseUrl(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
   const explicit = env.DATABASE_URL?.trim();
-  if (explicit) return explicit;
+  if (explicit) {
+    if (!POSTGRES_URL.test(explicit)) {
+      throw new DatabaseConfigError(
+        'DATABASE_URL must be a postgres:// connection string ' +
+          '(Supabase: Project Settings → Database → Connection string → Transaction pooler).',
+      );
+    }
+    return explicit;
+  }
   const supabase = env.SUPABASE_DATABASE_URL?.trim();
-  return supabase || null;
+  if (supabase && POSTGRES_URL.test(supabase)) return supabase;
+  return null;
 }
