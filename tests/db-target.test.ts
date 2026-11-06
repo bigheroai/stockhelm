@@ -94,4 +94,18 @@ describe('connection string resolution', () => {
   test('null when nothing is configured (PGlite takes over)', () => {
     assert.equal(resolveDatabaseUrl({}), null);
   });
+
+  test('ignores the HTTPS project URL the Supabase integration injects', () => {
+    assert.equal(
+      resolveDatabaseUrl({ SUPABASE_DATABASE_URL: 'https://abcdefgh.supabase.co' }),
+      null,
+    );
+  });
+
+  test('rejects a DATABASE_URL that is not a postgres:// string', () => {
+    assert.throws(
+      () => resolveDatabaseUrl({ DATABASE_URL: 'https://abcdefgh.supabase.co' }),
+      /postgres:\/\//,
+    );
+  });
 });
