@@ -1,10 +1,9 @@
-import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+import { migrationsFolder, type Db } from '../src/lib/db';
 import * as schema from '../src/lib/db/schema';
-import type { Db } from '../src/lib/db';
 
 /**
  * Fresh in-memory Postgres (PGlite is real Postgres compiled to WASM) with the
@@ -12,8 +11,8 @@ import type { Db } from '../src/lib/db';
  */
 export async function makeTestDb(): Promise<{ db: Db; close: () => Promise<void> }> {
   const pg = new PGlite();
-  const db = drizzle(pg, { schema }) as unknown as Db;
-  await migrate(db as never, { migrationsFolder: path.join(process.cwd(), 'drizzle') });
+  const db = drizzle({ client: pg, schema }) as unknown as Db;
+  await migrate(db as never, { migrationsFolder: migrationsFolder() });
   return {
     db,
     close: async () => {

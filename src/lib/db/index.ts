@@ -1,39 +1,38 @@
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
-import type { ExtractTablesWithRelations } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { PgAsyncDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from './schema';
-import { DatabaseConfigError, parseDatabaseTarget, resolveDatabaseUrl } from './target';
 
-export type Db = PgDatabase<
-  PgQueryResultHKT,
-  typeof schema,
-  ExtractTablesWithRelations<typeof schema>
->;
+export type Db = PgAsyncDatabase<PgQueryResultHKT, typeof schema>;
 
-const migrationsFolder = () => path.join(process.cwd(), 'drizzle');
+/** Where Netlify (and the embedded dev database) read migrations from. */
+export const migrationsFolder = () => path.join(process.cwd(), 'netlify', 'database', 'migrations');
 
 let dbPromise: Promise<Db> | null = null;
 let closeHandle: (() => Promise<void>) | null = null;
 
-/** True when running inside a function host rather than a long-lived server. */
-const isServerless = () =>
-  Boolean(
-    process.env.NETLIFY ||
-      process.env.VERCEL ||
-      process.env.AWS_LAMBDA_FUNCTION_NAME ||
-      process.env.CF_PAGES,
-  );
+/** Thrown when the app runs on Netlify without a database attached. */
+export class DatabaseConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseConfigError';
+  }
+}
 
 /**
- * Serverless gets one connection per instance: fifty concurrent invocations
- * would otherwise try to open five hundred connections. Long-lived servers
- * keep a real pool.
+ * Netlify Database sets NETLIFY_DB_URL on deployed functions and under
+ * `netlify dev`. Its presence is what selects the managed database.
  */
-function poolMax(): number {
-  const configured = Number(process.env.DATABASE_POOL_MAX);
-  if (Number.isFinite(configured) && configured > 0) return Math.trunc(configured);
-  return isServerless() ? 1 : 10;
+export const hasNetlifyDatabase = (env: Record<string, string | undefined> = process.env) =>
+  Boolean(env.NETLIFY_DB_URL?.trim());
+
+const isNetlifyRuntime = () => Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+async function createNetlifyDb(): Promise<Db> {
+  const { drizzle } = await import('drizzle-orm/netlify-db');
+  // Connection details come from the environment; migrations are applied by
+  // the Netlify platform during deploy, never by the app.
+  return drizzle({ schema }) as unknown as Db;
 }
 
 async function createPglite(): Promise<Db> {
@@ -45,68 +44,33 @@ async function createPglite(): Promise<Db> {
   await mkdir(dir, { recursive: true });
   const pg = new PGlite(dir);
   closeHandle = () => pg.close();
-  const db = drizzle(pg, { schema }) as unknown as Db;
+  const db = drizzle({ client: pg, schema }) as unknown as Db;
   await migrate(db as never, { migrationsFolder: migrationsFolder() });
-  return db;
-}
-
-async function createPostgres(url: string): Promise<Db> {
-  const { default: postgres } = await import('postgres');
-  const { drizzle } = await import('drizzle-orm/postgres-js');
-  const { migrate } = await import('drizzle-orm/postgres-js/migrator');
-
-  const target = parseDatabaseTarget(url);
-
-  const client = postgres(url, {
-    max: poolMax(),
-    // Transaction-mode pooling (Supabase :6543) cannot use prepared statements:
-    // each statement may land on a different backend connection.
-    prepare: target.prepare,
-    // `require` encrypts without demanding a local CA bundle, which is what
-    // Supabase's pooler expects. Local development usually has no TLS at all.
-    ssl: target.ssl,
-    idle_timeout: 20,
-    connect_timeout: 15,
-    onnotice: () => {},
-  });
-
-  closeHandle = () => client.end({ timeout: 5 });
-  const db = drizzle(client, { schema }) as unknown as Db;
-  if (process.env.AUTO_MIGRATE === 'true') {
-    await migrate(db as never, { migrationsFolder: migrationsFolder() });
-  }
   return db;
 }
 
 /**
  * Resolves the process-wide database handle.
  *
- * A connection string from the environment → that Postgres (Supabase, Neon, a
- * VPS, anything). Neither variable set → embedded PGlite on disk, for
- * development and tests.
+ * On Netlify (or under `netlify dev`) → Netlify Database, the managed Postgres
+ * attached to this site. Anywhere else → embedded PGlite on disk, for offline
+ * development and the seed script.
  */
 export function getDb(): Promise<Db> {
   if (!dbPromise) {
-    let url: string | null;
-    try {
-      url = resolveDatabaseUrl();
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    if (!url && isServerless()) {
+    if (hasNetlifyDatabase()) {
+      dbPromise = createNetlifyDb();
+    } else if (isNetlifyRuntime()) {
       // PGlite needs a writable, persistent disk; a function host has neither.
-      // Fail loudly instead of with an obscure filesystem error. Not cached, so
-      // fixing the environment takes effect without a cold start.
+      // Not cached, so attaching the database takes effect without a cold start.
       return Promise.reject(
         new DatabaseConfigError(
-          'No Postgres connection string configured. Set DATABASE_URL to your ' +
-            'Supabase transaction-pooler URL (postgres://…:6543/postgres). ' +
-            'SUPABASE_DATABASE_URL from the Supabase integration is an HTTPS API URL ' +
-            'and cannot be used for a database connection.',
+          'Netlify Database is not connected to this deploy (NETLIFY_DB_URL is not set).',
         ),
       );
+    } else {
+      dbPromise = createPglite();
     }
-    dbPromise = url ? createPostgres(url) : createPglite();
   }
   return dbPromise;
 }
