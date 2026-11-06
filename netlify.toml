@@ -1,0 +1,19 @@
+[build]
+  command = "pnpm build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# IMPORTANT — set the functions region in the Netlify UI:
+#   Site configuration → Build & Deploy → Functions → Region
+# Default is US East. For a Supabase project in ap-northeast-2 (Seoul), choose
+# Tokyo (ap-northeast-1) — or Seoul if it is offered. Every page here makes
+# several sequential database round trips, so US East adds roughly a second of
+# latency per page load versus Tokyo's ~30-40 ms.
+#
+# After deploying, verify with:  curl https://<site>/api/health
+# `dbLatencyMs` should be double digits, not hundreds.
+
+# Next.js is detected automatically and gets Netlify's OpenNext adapter.
+# Available here: https://docs.netlify.com/build/frameworks/framework-setup-guides/nextjs/overview/

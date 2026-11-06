@@ -1,0 +1,9 @@
+packages:
+  - '.'
+
+# A flat, hoisted node_modules keeps paths short. The default symlinked store
+# creates very deep directories, which fails on Windows + OneDrive paths.
+nodeLinker: hoisted
+
+onlyBuiltDependencies:
+  - esbuild
