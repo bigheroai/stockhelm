@@ -12,6 +12,8 @@ import {
   sessionCookieOptions,
   verifyPassword,
 } from '@/lib/auth';
+import { createFirstAdmin } from '@/lib/domain/setup';
+import { isDomainError } from '@/lib/domain/errors';
 
 export interface LoginState {
   error: string | null;
@@ -56,4 +58,31 @@ export async function logout() {
   }
   jar.delete(SESSION_COOKIE);
   redirect('/login');
+}
+
+/** First-run only: creates the initial administrator and signs them in. */
+export async function setupFirstAdmin(_prev: LoginState, formData: FormData): Promise<LoginState> {
+  const password = String(formData.get('password') ?? '');
+  if (password !== String(formData.get('confirm') ?? '')) {
+    return { error: 'The two passwords do not match.' };
+  }
+
+  const db = await getDb();
+  let userId: string;
+  try {
+    const admin = await createFirstAdmin(db, {
+      name: String(formData.get('name') ?? ''),
+      email: String(formData.get('email') ?? ''),
+      password,
+    });
+    userId = admin.id;
+  } catch (error) {
+    if (isDomainError(error)) return { error: error.message };
+    throw error;
+  }
+
+  const token = await createSession(db, userId);
+  const jar = await cookies();
+  jar.set(SESSION_COOKIE, token, sessionCookieOptions());
+  redirect('/');
 }

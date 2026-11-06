@@ -2,8 +2,7 @@
  * Loads .env.local then .env for CLI scripts.
  *
  * Next.js reads these files automatically; a plain `node scripts/x.ts` does
- * not. Without this, `DATABASE_URL` from .env.local is invisible to migrations
- * and the app silently falls back to the embedded PGlite database.
+ * not. Without this, settings in .env.local are invisible to the seed script.
  *
  * Real environment variables win: process.loadEnvFile never overwrites a value
  * that is already set.

@@ -1,9 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // PGlite ships a WASM binary and postgres.js opens raw sockets; keep both
-  // out of the bundler and load them from node_modules at runtime.
-  serverExternalPackages: ['@electric-sql/pglite', 'postgres'],
+  // PGlite ships a WASM binary; keep it out of the bundler and load it from
+  // node_modules at runtime (it is only used outside Netlify).
+  serverExternalPackages: ['@electric-sql/pglite'],
   poweredByHeader: false,
 
   // Type checking runs as its own step (`pnpm typecheck`) so the build does not
